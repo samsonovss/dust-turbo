@@ -1,6 +1,7 @@
 /* Original Canvas2D artwork and browser shell. No external assets or dependencies. */
 (function () {
   'use strict';
+  const M = window.DustMultiplayer;
   const C = window.DustCore, $ = id => document.getElementById(id);
   const canvas = $('game'), ctx = canvas.getContext('2d');
   const KEY = 'dust-turbo-save-v1';
@@ -8,7 +9,7 @@
   try { save = C.parseSave(localStorage.getItem(KEY)); } catch (_) { save = C.freshSave(); $('storage-warning').classList.remove('hidden'); }
   let selected = save.unlocked, biome = Math.floor(selected / 6), race = null, paused = false, camera = 0;
   let width = 1280, height = 720, clock = 0, last = 0, accumulator = 0, toastUntil = 0, goUntil = 0;
-  let particles = [], audio = null, engine = null, engineGain = null, focusBeforeModal = null, worldClock = 0;
+  let particles = [], audio = null, engine = null, engineGain = null, engineBass = null, networkTick = 0, focusBeforeModal = null, worldClock = 0;
   const keys = new Set(), pointers = new Map();
   const pad = n => String(n).padStart(2, '0');
   const timeText = t => `${pad(Math.floor(t / 60))}:${pad(Math.floor(t % 60))}.${pad(Math.floor((t % 1) * 100))}`;
@@ -22,15 +23,18 @@
       if (!audio) {
         const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
         audio = new AC(); engine = audio.createOscillator(); engineGain = audio.createGain();
-        engine.type = 'sawtooth'; engine.frequency.value = 45; engineGain.gain.value = 0;
-        engine.connect(engineGain).connect(audio.destination); engine.start();
+        engine.type = 'triangle'; engine.frequency.value = 48; engineGain.gain.value = 0;
+        const filter = audio.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 240; filter.Q.value = .4;
+        engineBass = audio.createOscillator(); engineBass.type = 'sine'; engineBass.frequency.value = 24;
+        const bassGain = audio.createGain(); bassGain.gain.value = .5;
+        engine.connect(filter); engineBass.connect(bassGain).connect(filter); filter.connect(engineGain).connect(audio.destination); engine.start(); engineBass.start();
       }
       if (audio.state === 'suspended') audio.resume().catch(() => {});
     } catch (_) { /* Sound is optional; the game remains playable. */ }
   }
   function beep(frequency, duration = .1, volume = .045) {
     if (!audio || audio.state !== 'running' || !save.sound) return;
-    const o = audio.createOscillator(), g = audio.createGain(); o.type = 'square'; o.frequency.value = frequency;
+    const o = audio.createOscillator(), g = audio.createGain(); o.type = 'sine'; o.frequency.value = frequency;
     g.gain.setValueAtTime(volume, audio.currentTime); g.gain.exponentialRampToValueAtTime(.0001, audio.currentTime + duration);
     o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + duration);
     o.onended = () => { o.disconnect(); g.disconnect(); };
@@ -58,8 +62,9 @@
   }
   function closeModal() { visible('modal', false); if (focusBeforeModal && focusBeforeModal.isConnected) focusBeforeModal.focus(); focusBeforeModal = null; }
   function showModal(html) { focusBeforeModal = document.activeElement; $('modal-card').innerHTML = html; visible('modal', true); $('modal-card').querySelector('button').focus(); }
-  function home() { release(); race = null; paused = false; particles = []; goUntil = 0; $('toast').classList.remove('show'); closeModal(); document.body.classList.remove('racing'); visible('menu', true); ['hud','pause','race-tip','touch-controls','countdown'].forEach(id => visible(id, false)); menuUI(); }
-  function start(id = selected) {
+  function home() { if(M.active)M.leave(); release(); race = null; paused = false; particles = []; goUntil = 0; $('toast').classList.remove('show'); closeModal(); document.body.classList.remove('racing'); visible('menu', true); ['hud','pause','race-tip','touch-controls','countdown'].forEach(id => visible(id, false)); menuUI(); }
+  function start(id = selected, network = false) {
+    if(M.active && !network) { toast('Новый заезд запускает ведущий в сетевой комнате'); return; }
     id = C.clamp(Math.floor(Number(id)) || 0, 0, 29); selected = id; biome = C.COURSES[id].biome;
     release(); closeModal(); race = C.createRace(id); paused = false; particles = []; camera = -cameraLead(); accumulator = 0; goUntil = 0;
     document.body.classList.add('racing'); document.documentElement.style.setProperty('--accent', C.BIOMES[biome].accent);
@@ -68,9 +73,12 @@
     $('record-time').textContent = save.records[id] ? `РЕКОРД ${timeText(save.records[id].time)}` : 'РЕКОРД —';
     $('race-tip').textContent = 'Z / W — ГАЗ  ·  X / ПРОБЕЛ — ТУРБО  ·  ↑ ↓ — ПОЛОСА  ·  ← → — БАЛАНС В ПОЛЁТЕ';
     if (matchMedia('(pointer: coarse)').matches) $('race-tip').textContent = 'ДЕРЖИ ГАЗ · ↶ ↷ — БАЛАНС В ПОЛЁТЕ · ГОЛУБОЕ ОХЛАЖДАЕТ';
+    if(network) { race.opponents=[]; race.multiplayer=true; race.player.lane=race.player.targetLane=M.host?1:2; }
+    $('field-size').textContent=network?'2':'4';
     updateHUD();
   }
   function pause(toggle = true) {
+    if(M.active) { toast('В сетевом заезде нет паузы. Домой — выйти из комнаты'); return; }
     if (!race || race.phase === 'finished') return;
     paused = toggle; release();
     if (!paused) { closeModal(); return; }
@@ -78,15 +86,27 @@
     $('resume').onclick = () => { wakeAudio(); pause(false); }; $('restart').onclick = () => start(selected); $('back-menu').onclick = home;
   }
   function finish() {
+    if(M.active) { release(); multiplayerResult(); return; }
     release(); const best = C.record(save, race); persist(); const m = C.medal(race.course, race.time);
     const label = {gold:'ЗОЛОТОЙ СЛЕД', silver:'СЕРЕБРЯНЫЙ РИТМ', bronze:'БРОНЗОВАЯ ИСКРА', finish:'МАРШРУТ ПРОЙДЕН'}[m];
     showModal(`<div class="eyebrow">${pad(selected + 1)} / ${race.course.name.toUpperCase()}</div><div class="result-emblem">${m === 'finish' ? '⚑' : '◆'}</div><h2 id="modal-title">${label}</h2><div class="result-time">${timeText(race.time)}</div>${best ? '<div class="new-best">НОВЫЙ ЛИЧНЫЙ РЕКОРД</div>' : ''}<div class="result-stats"><span>МЕСТО <b>${race.place} / 4</b></span><span>ПАДЕНИЯ <b>${race.player.crashes}</b></span></div><div class="medal-targets">ЗОЛОТО ${timeText(race.course.medals.gold)} · СЕРЕБРО ${timeText(race.course.medals.silver)}<br>БРОНЗА ${timeText(race.course.medals.bronze)}</div><button class="primary" id="next">${selected < 29 ? 'СЛЕДУЮЩАЯ ТРАССА ↗' : 'ВСЕ 30 ТРАСС ПРОЙДЕНЫ ↗'}</button><div class="modal-actions"><button class="secondary" id="restart">ЕЩЁ РАЗ</button><button class="secondary" id="back-menu">МАРШРУТЫ</button></div>`);
     $('next').onclick = () => selected < 29 ? start(selected + 1) : home(); $('restart').onclick = () => start(selected); $('back-menu').onclick = home;
     beep(660, .25); visible('countdown', false);
   }
+  function multiplayerResult() {
+    const other=M.remote, done=other&&other.finished;
+    showModal('<div class="eyebrow">ЗАЕЗД С ДРУГОМ</div><h2 id="modal-title">'+(done?(Math.abs(race.player.finishTime-other.finishTime)<.02?'НИЧЬЯ':race.player.finishTime<other.finishTime?'ТЫ ПОБЕДИЛ!':'ДРУГ ПОБЕДИЛ!'):'ТЫ НА ФИНИШЕ')+'</h2><div class="result-time">'+timeText(race.player.finishTime)+'</div><p id="friend-result">'+(done?'Друг: '+timeText(other.finishTime)+' · падения: '+other.crashes:'Ждём друга на финише…')+'</p><p>Твои падения: '+race.player.crashes+'</p><button id="mp-results-room" class="primary">В КОМНАТУ / РЕВАНШ</button><button id="mp-results-exit" class="secondary">ВЫЙТИ В МЕНЮ</button>');
+    $('mp-results-room').onclick=()=>{closeModal();$('mp-panel').classList.remove('hidden');};
+    $('mp-results-exit').onclick=home;
+  }
   function toast(text) { $('toast').textContent = text; $('toast').classList.add('show'); toastUntil = clock + 1.6; }
   function advance(dt, controls) {
     if (!race || paused || race.phase === 'finished') return;
+    if(M.active) {
+      if(!M.running)return;
+      if(race.phase==='countdown') { race.countdown=M.remaining(); if(race.countdown>0)return; race.phase='racing';goUntil=clock+.8;beep(330,.16); }
+      race.time=M.elapsed()-dt;
+    }
     const count = Math.ceil(race.countdown); C.step(race, controls, dt);
     if (race.phase === 'countdown' && count !== Math.ceil(race.countdown)) beep(220, .08);
     race.events.forEach(e => {
@@ -100,6 +120,7 @@
   }
   function updateHUD() {
     if (!race) return;
+    if(M.active && M.remote)race.place=1+(M.remote.finished?(!race.player.finished||M.remote.finishTime<race.player.finishTime):M.remote.x>race.player.x);
     const r = race.player; $('position').textContent = race.place; $('timer').textContent = timeText(race.time); $('speed').textContent = Math.round(r.speed);
     $('race-progress-fill').style.width = `${100 * r.x / race.course.length}%`; $('heat-value').textContent = `${Math.round(r.heat)}%`;
     $('heat-fill').style.width = `${r.heat}%`; $('heat-fill').style.background = r.overheat ? '#ff6262' : r.heat > 75 ? '#ff9864' : 'var(--accent)';
@@ -227,7 +248,7 @@
       if(race) {
         if(screenX(0)>-30&&screenX(0)<W)for(let j=0;j<8;j++)rect(screenX(0),roadTop+lane*laneH+j*8,10,8,j%2?'#e4d9bb':'#34303c');
         const finishX=screenX(course.length);if(finishX>-40&&finishX<W+40)for(let row=0;row<8;row++)for(let col=0;col<3;col++)rect(finishX+col*9,roadTop+lane*laneH+row*8,9,8,(row+col)%2?'#fff0d7':'#34303c');
-        [...race.opponents,race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
+        [...race.opponents,...(M.active&&M.remote?[M.remote]:[]),race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
       }else if(lane===2){rider({x:camera+W*.43/viewScale,lane:2,z:5+Math.max(0,Math.sin(clock*.9))*36,angle:-.12,speed:110,color:'#ffe578',name:'ТЫ',boosting:true,crash:0},true,true);}
     }
     if(race&&race.player.speed>30&&!race.player.airborne&&!paused&&race.phase==='racing'&&Math.random()<.7)burst(race.player,1,b.edge);
@@ -237,8 +258,10 @@
   function frame(now) {
     const dt=Math.min((now-last)/1000||0,.1);last=now;clock+=dt;if(!paused)worldClock+=dt;
     if(race&&!paused){accumulator+=dt;while(accumulator>=1/60){advance(1/60,input());accumulator-=1/60;}}else accumulator=0;
+    networkTick+=dt;if(networkTick>=.05){networkTick=0;M.tick();}
     render(dt);updateHUD();if(clock>toastUntil)$('toast').classList.remove('show');
-    if(engineGain&&audio){const active=save.sound&&race&&!paused&&race.phase==='racing'&&!document.hidden;engineGain.gain.setTargetAtTime(active?.013:0,audio.currentTime,.06);engine.frequency.setTargetAtTime(active?42+race.player.speed*.63:42,audio.currentTime,.07);}
+    if(engineGain&&audio){const active=save.sound&&race&&!paused&&race.phase==='racing'&&!document.hidden;engineGain.gain.setTargetAtTime(active?.045:0,audio.currentTime,.06);engine.frequency.setTargetAtTime(active?48+race.player.speed*.13:48,audio.currentTime,.07);}
+    if(engineBass&&audio)engineBass.frequency.setTargetAtTime(race?24+race.player.speed*.055:24,audio.currentTime,.12);
     requestAnimationFrame(frame);
   }
   $('play').onclick=()=>{wakeAudio();start();};$('home').onclick=e=>{e.preventDefault();home();};$('pause').onclick=()=>pause(!paused);
@@ -246,7 +269,7 @@
   const gameKeys=['KeyZ','KeyW','KeyX','Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Escape','KeyP','KeyR'];
   addEventListener('keydown',e=>{
     if(e.code==='Tab'&&!$('modal').classList.contains('hidden')){const buttons=[...$('modal').querySelectorAll('button')];if(e.shiftKey&&document.activeElement===buttons[0]){e.preventDefault();buttons.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===buttons.at(-1)){e.preventDefault();buttons[0].focus();}return;}
-    if(!race||!gameKeys.includes(e.code))return;
+    if(!race||!gameKeys.includes(e.code)||!$('mp-panel').classList.contains('hidden'))return;
     if(e.code==='Space'&&document.activeElement?.tagName==='BUTTON'&&!$('modal').classList.contains('hidden'))return;
     e.preventDefault();wakeAudio();if(e.repeat)return;
     if(e.code==='Escape'||e.code==='KeyP'){pause(!paused);return;}if(e.code==='KeyR'){start(selected);return;}
@@ -259,7 +282,7 @@
     button.addEventListener('pointerup',end);button.addEventListener('pointercancel',end);button.addEventListener('lostpointercapture',end);button.addEventListener('contextmenu',e=>e.preventDefault());
   });
   addEventListener('blur',()=>{release();if(race&&race.phase!=='finished'&&!paused)pause(true);});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){release();if(race&&race.phase!=='finished')pause(true);if(engineGain&&audio)engineGain.gain.setValueAtTime(0,audio.currentTime);}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){M.hidden();release();if(race&&race.phase!=='finished')pause(true);if(engineGain&&audio)engineGain.gain.setValueAtTime(0,audio.currentTime);}});
   addEventListener('resize',resize);
   window.__game={get state(){return {race,paused,selected,biome,save};},start,step(dt,controls={}){let remaining=C.clamp(Number(dt)||0,0,120);while(remaining>0){const slice=Math.min(remaining,1/60);advance(slice,controls);remaining-=slice;}updateHUD();return race;},pause,home};
   resize();soundLabel();menuUI();
@@ -267,5 +290,6 @@
     showModal('<div class="eyebrow">БОЛЬШЕ СКОРОСТИ · ДЛИННЕЕ ТРАССЫ</div><h2 id="modal-title">НОВЫЙ СЕЗОН.</h2><p>Трассы стали намного длиннее, а мотоциклы — быстрее. Старые времена больше несопоставимы, поэтому рекорды сброшены.<br><br>Все открытые трассы и настройка звука сохранены.</p><button class="primary" id="migration-ok">ПОНЯТНО · НА СТАРТ ↗</button>');
     $('migration-ok').onclick=()=>{delete save.migrationNotice;persist();closeModal();};
   }
+  M.init({selected:()=>selected,wake:wakeAudio,player:()=>race&&race.player,home,start:id=>start(id,true),interrupt:()=>{release();paused=true;closeModal();},remote:p=>{if(race&&race.player.finished&&p.finished&&$('friend-result')&&$('friend-result').textContent.includes('Ждём'))multiplayerResult();}});
   requestAnimationFrame(frame);
 })();
