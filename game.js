@@ -16,17 +16,18 @@
   const visible = (id, yes) => $(id).classList.toggle('hidden', !yes);
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(save)); } catch (_) { visible('storage-warning', true); } }
   function release() { keys.clear(); pointers.clear(); document.querySelectorAll('.pressed').forEach(el => el.classList.remove('pressed')); }
-  function input() { const has = a => [...pointers.values()].includes(a); return { gas: keys.has('KeyZ') || keys.has('KeyW') || has('gas'), boost: keys.has('KeyX') || keys.has('Space') || has('boost'), lean: (keys.has('ArrowRight') || has('right') ? 1 : 0) - (keys.has('ArrowLeft') || has('left') ? 1 : 0) }; }
+  function input() { const has = a => [...pointers.values()].includes(a); return { gas: keys.has('KeyZ') || keys.has('KeyW') || has('gas') || has('boost'), boost: keys.has('KeyX') || keys.has('Space') || has('boost'), lean: (keys.has('ArrowRight') || has('right') ? 1 : 0) - (keys.has('ArrowLeft') || has('left') ? 1 : 0) }; }
   function wakeAudio() {
+    window.DustTelegram?.gesture();
     if (!save.sound) return;
     try {
       if (!audio) {
         const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
         audio = new AC(); engine = audio.createOscillator(); engineGain = audio.createGain();
-        engine.type = 'triangle'; engine.frequency.value = 48; engineGain.gain.value = 0;
-        const filter = audio.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 240; filter.Q.value = .4;
-        engineBass = audio.createOscillator(); engineBass.type = 'sine'; engineBass.frequency.value = 24;
-        const bassGain = audio.createGain(); bassGain.gain.value = .5;
+        const real=new Float32Array(9),imag=new Float32Array([0,1,.38,.22,.12,.07,.035,.02,.01]); engine.setPeriodicWave(audio.createPeriodicWave(real,imag)); engine.frequency.value = 65; engineGain.gain.value = 0;
+        const filter = audio.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 850; filter.Q.value = .4;
+        engineBass = audio.createOscillator(); engineBass.type = 'sine'; engineBass.frequency.value = 32.5;
+        const bassGain = audio.createGain(); bassGain.gain.value = .28;
         engine.connect(filter); engineBass.connect(bassGain).connect(filter); filter.connect(engineGain).connect(audio.destination); engine.start(); engineBass.start();
       }
       if (audio.state === 'suspended') audio.resume().catch(() => {});
@@ -133,12 +134,12 @@
   let W = 1280, H = 720, unit = 1, roadTop = 380, laneH = 64, viewScale = 1;
   const cameraLead = () => Math.min(W*.23,260)/viewScale;
   function resize() {
-    width = innerWidth; height = innerHeight; const dpr = Math.min(devicePixelRatio || 1, 2);
+    width = $('app').clientWidth; height = $('app').clientHeight; const dpr = Math.min(devicePixelRatio || 1, 2);
     canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
     H = 720; W = width / height * H; unit = canvas.height / H;
-    roadTop = 362; laneH = 65;
+    roadTop = width<height?300:362; laneH = width<height?55:65;
     // Wider physical view; even portrait gets > 1 second to spot hazards.
-    viewScale = Math.max(.36, Math.min(.9, W / 1300));
+    viewScale = width<height ? Math.max(.10,Math.min(.22,W/3200)) : Math.max(.36, Math.min(.9, W / 1300));
     ctx.setTransform(unit, 0, 0, unit, 0, 0); ctx.imageSmoothingEnabled = false;
   }
   const rect = (x,y,w,h,color) => { ctx.fillStyle = color; ctx.fillRect(Math.round(x),Math.round(y),Math.ceil(w),Math.ceil(h)); };
@@ -261,8 +262,7 @@
     if(race&&!paused){accumulator+=dt;while(accumulator>=1/60){advance(1/60,input());accumulator-=1/60;}}else accumulator=0;
     networkTick+=dt;if(networkTick>=.05){networkTick=0;M.tick();}
     render(dt);updateHUD();if(clock>toastUntil)$('toast').classList.remove('show');
-    if(engineGain&&audio){const active=save.sound&&race&&!paused&&race.phase==='racing'&&!document.hidden;engineGain.gain.setTargetAtTime(active?.045:0,audio.currentTime,.06);engine.frequency.setTargetAtTime(active?48+race.player.speed*.13:48,audio.currentTime,.07);}
-    if(engineBass&&audio)engineBass.frequency.setTargetAtTime(race?24+race.player.speed*.055:24,audio.currentTime,.12);
+    if(engineGain&&audio){const active=save.sound&&race&&!paused&&race.phase!=='finished'&&!document.hidden;const p=race&&race.player,n=p?C.clamp(p.speed/C.PHYSICS.turbo,0,1):0;const pitch=65+115*Math.pow(n,.75)+(p&&p.boosting?12:0);engineGain.gain.setTargetAtTime(active?(p.crash>0?.012:.022+n*.012):0,audio.currentTime,.09);engine.frequency.setTargetAtTime(pitch,audio.currentTime,.10);engineBass.frequency.setTargetAtTime(pitch/2,audio.currentTime,.12);}
     requestAnimationFrame(frame);
   }
   $('play').onclick=()=>{wakeAudio();start();};$('home').onclick=e=>{e.preventDefault();home();};$('pause').onclick=()=>pause(!paused);
@@ -284,7 +284,7 @@
   });
   addEventListener('blur',()=>{release();if(race&&race.phase!=='finished'&&!paused)pause(true);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden){M.hidden();release();if(race&&race.phase!=='finished')pause(true);if(engineGain&&audio)engineGain.gain.setValueAtTime(0,audio.currentTime);}});
-  addEventListener('resize',resize);
+  addEventListener('resize',resize);addEventListener('gameviewport',resize);
   window.__game={get state(){return {race,paused,selected,biome,save};},start,step(dt,controls={}){let remaining=C.clamp(Number(dt)||0,0,120);while(remaining>0){const slice=Math.min(remaining,1/60);advance(slice,controls);remaining-=slice;}updateHUD();return race;},pause,home};
   resize();soundLabel();menuUI();
   if(save.migrationNotice){
