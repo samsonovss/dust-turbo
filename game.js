@@ -73,8 +73,8 @@
     $('record-time').textContent = save.records[id] ? `РЕКОРД ${timeText(save.records[id].time)}` : 'РЕКОРД —';
     $('race-tip').textContent = 'Z / W — ГАЗ  ·  X / ПРОБЕЛ — ТУРБО  ·  ↑ ↓ — ПОЛОСА  ·  ← → — БАЛАНС В ПОЛЁТЕ';
     if (matchMedia('(pointer: coarse)').matches) $('race-tip').textContent = 'ДЕРЖИ ГАЗ · ↶ ↷ — БАЛАНС В ПОЛЁТЕ · ГОЛУБОЕ ОХЛАЖДАЕТ';
-    if(network) { race.opponents=[]; race.multiplayer=true; race.player.lane=race.player.targetLane=M.host?1:2; }
-    $('field-size').textContent=network?'2':'4';
+    if(network) { race.opponents=[]; race.multiplayer=true; race.player.lane=race.player.targetLane=M.slot; }
+    $('field-size').textContent=network?String(M.players.length):'4';
     updateHUD();
   }
   function pause(toggle = true) {
@@ -94,8 +94,9 @@
     beep(660, .25); visible('countdown', false);
   }
   function multiplayerResult() {
-    const other=M.remote, done=other&&other.finished;
-    showModal('<div class="eyebrow">ЗАЕЗД С ДРУГОМ</div><h2 id="modal-title">'+(done?(Math.abs(race.player.finishTime-other.finishTime)<.02?'НИЧЬЯ':race.player.finishTime<other.finishTime?'ТЫ ПОБЕДИЛ!':'ДРУГ ПОБЕДИЛ!'):'ТЫ НА ФИНИШЕ')+'</h2><div class="result-time">'+timeText(race.player.finishTime)+'</div><p id="friend-result">'+(done?'Друг: '+timeText(other.finishTime)+' · падения: '+other.crashes:'Ждём друга на финише…')+'</p><p>Твои падения: '+race.player.crashes+'</p><button id="mp-results-room" class="primary">В КОМНАТУ / РЕВАНШ</button><button id="mp-results-exit" class="secondary">ВЫЙТИ В МЕНЮ</button>');
+    showModal('<div class="eyebrow">СЕТЕВОЙ ЗАЕЗД</div><h2 id="modal-title">'+(M.results?'ИТОГИ ЗАЕЗДА':'ТЫ НА ФИНИШЕ')+'</h2><div class="result-time">'+timeText(race.player.finishTime)+'</div><div id="friend-result"></div><button id="mp-results-room" class="primary">В КОМНАТУ / РЕВАНШ</button><button id="mp-results-exit" class="secondary">ВЫЙТИ В МЕНЮ</button>');
+    const rows=M.results||[]; if(!rows.length)$('friend-result').textContent='Ждём остальных на финише…';
+    rows.forEach((p,i)=>{const row=document.createElement('p');row.textContent=(i+1)+'. '+p.name+' · '+timeText(p.time)+' · падения: '+p.crashes;$('friend-result').append(row);});
     $('mp-results-room').onclick=()=>{closeModal();$('mp-panel').classList.remove('hidden');};
     $('mp-results-exit').onclick=home;
   }
@@ -120,7 +121,7 @@
   }
   function updateHUD() {
     if (!race) return;
-    if(M.active && M.remote)race.place=1+(M.remote.finished?(!race.player.finished||M.remote.finishTime<race.player.finishTime):M.remote.x>race.player.x);
+    if(M.active)race.place=1+M.remotes.filter(p=>p.finished?(!race.player.finished||p.finishTime<race.player.finishTime):p.x>race.player.x).length;
     const r = race.player; $('position').textContent = race.place; $('timer').textContent = timeText(race.time); $('speed').textContent = Math.round(r.speed);
     $('race-progress-fill').style.width = `${100 * r.x / race.course.length}%`; $('heat-value').textContent = `${Math.round(r.heat)}%`;
     $('heat-fill').style.width = `${r.heat}%`; $('heat-fill').style.background = r.overheat ? '#ff6262' : r.heat > 75 ? '#ff9864' : 'var(--accent)';
@@ -248,7 +249,7 @@
       if(race) {
         if(screenX(0)>-30&&screenX(0)<W)for(let j=0;j<8;j++)rect(screenX(0),roadTop+lane*laneH+j*8,10,8,j%2?'#e4d9bb':'#34303c');
         const finishX=screenX(course.length);if(finishX>-40&&finishX<W+40)for(let row=0;row<8;row++)for(let col=0;col<3;col++)rect(finishX+col*9,roadTop+lane*laneH+row*8,9,8,(row+col)%2?'#fff0d7':'#34303c');
-        [...race.opponents,...(M.active&&M.remote?[M.remote]:[]),race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
+        [...race.opponents,...(M.active?M.remotes:[]),race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
       }else if(lane===2){rider({x:camera+W*.43/viewScale,lane:2,z:5+Math.max(0,Math.sin(clock*.9))*36,angle:-.12,speed:110,color:'#ffe578',name:'ТЫ',boosting:true,crash:0},true,true);}
     }
     if(race&&race.player.speed>30&&!race.player.airborne&&!paused&&race.phase==='racing'&&Math.random()<.7)burst(race.player,1,b.edge);
@@ -290,6 +291,6 @@
     showModal('<div class="eyebrow">БОЛЬШЕ СКОРОСТИ · ДЛИННЕЕ ТРАССЫ</div><h2 id="modal-title">НОВЫЙ СЕЗОН.</h2><p>Трассы стали намного длиннее, а мотоциклы — быстрее. Старые времена больше несопоставимы, поэтому рекорды сброшены.<br><br>Все открытые трассы и настройка звука сохранены.</p><button class="primary" id="migration-ok">ПОНЯТНО · НА СТАРТ ↗</button>');
     $('migration-ok').onclick=()=>{delete save.migrationNotice;persist();closeModal();};
   }
-  M.init({selected:()=>selected,wake:wakeAudio,player:()=>race&&race.player,home,start:id=>start(id,true),interrupt:()=>{release();paused=true;closeModal();},remote:p=>{if(race&&race.player.finished&&p.finished&&$('friend-result')&&$('friend-result').textContent.includes('Ждём'))multiplayerResult();}});
+  M.init({selected:()=>selected,wake:wakeAudio,player:()=>race&&race.player,home,start:id=>start(id,true),interrupt:()=>{release();paused=true;closeModal();},remote:()=>{},results:()=>{if(race&&race.player.finished)multiplayerResult();}});
   requestAnimationFrame(frame);
 })();
