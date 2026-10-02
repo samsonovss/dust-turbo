@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#171922"><meta name="description" content="Пыль и турбо — оригинальная мотоаркада. 30 трасс, 5 миров, один полный газ. Работает без сети и регистрации.">
+<title>Пыль и турбо · мотоаркада</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23171922'/%3E%3Cpath d='M36 7 16 36h16l-4 21 22-31H34Z' fill='%23ffc56f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css?v=2-long-rides">
+</head>
+<body>
+<main id="app">
+<canvas id="game" aria-label="Гоночная трасса с четырьмя полосами"></canvas>
+<div class="vignette" aria-hidden="true"></div>
+<header id="topbar"><a class="wordmark" href="#" id="home" aria-label="Выбор трассы">ПЫЛЬ<span>✦</span>ТУРБО<small>MOTO ARCADE / 2026</small></a><div class="top-actions"><span class="offline">● ВСЁ ЛОКАЛЬНО</span><button id="sound" class="icon-btn" title="Звук" aria-label="Включить или выключить звук">ЗВУК: ВКЛ</button><button id="pause" class="icon-btn hidden" aria-label="Пауза">Ⅱ</button></div></header>
+<section id="menu" class="screen menu-screen">
+<div class="hero"><div class="eyebrow"><span class="live-dot"></span> 30 ТРАСС · 5 МИРОВ · ПОЛНЫЙ ГАЗ</div><h1>ОСТАВЬ<br><span>СВОЙ СЛЕД.</span></h1><p>Четыре полосы. Раскалённый мотор.<br>Длинная трасса. Большой прыжок. Полный газ.</p><button id="play" class="primary">НА СТАРТ <span>↗</span></button><div class="hero-meta"><span id="continue-label">01 / ПЕРВЫЙ СЛЕД</span><span>БЕЗ РЕГИСТРАЦИИ</span></div></div>
+<div class="track-panel"><div class="panel-heading"><h2>ВЫБЕРИ МАРШРУТ</h2><span id="progress-label">01 / 30</span></div><div id="biome-tabs" class="biome-tabs" role="tablist" aria-label="Миры"></div><div class="biome-info"><span id="biome-kicker"></span><h3 id="biome-title"></h3></div><div id="courses" class="courses"></div><div class="panel-foot"><span>Финишируй → открой следующую</span><span id="medal-count">0 МЕДАЛЕЙ</span></div></div>
+<div class="controls-guide"><div><kbd>Z</kbd><span>или <kbd>W</kbd> газ</span></div><div><kbd>X</kbd><span>или <kbd>ПРОБЕЛ</kbd> турбо</span></div><div><kbd>↑</kbd><kbd>↓</kbd><span>полоса</span></div><div><kbd>←</kbd><kbd>→</kbd><span>наклон в воздухе</span></div><div><kbd>Esc</kbd><span>пауза</span></div></div>
+</section>
+<section id="hud" class="hidden" aria-label="Показатели гонки"><div class="hud-left"><div class="eyebrow" id="race-label">01 / ПЕРВЫЙ СЛЕД</div><div class="position"><strong id="position">1</strong><span>/ 4 <small>ПОЗИЦИЯ</small></span></div></div><div class="hud-center"><div class="race-progress"><i id="race-progress-fill"></i><b>⚑</b></div><div class="hud-time"><span id="timer">00:00.00</span><span id="record-time">РЕКОРД —</span></div></div><div class="hud-right"><div class="speed"><strong id="speed">0</strong><span>КМ/Ч</span></div><div class="heat-head"><span id="heat-label">ТЕМПЕРАТУРА</span><span id="heat-value">0%</span></div><div class="heat-meter"><i id="heat-fill"></i></div></div></section>
+<div id="race-tip" class="race-tip hidden"></div><div id="toast" role="status"></div><div id="countdown" class="hidden"></div>
+<div id="touch-controls" class="hidden"><div class="touch-cluster"><button data-action="up" aria-label="Полоса вверх">↑</button><button data-action="down" aria-label="Полоса вниз">↓</button><button data-action="left" aria-label="Наклон назад">↶</button><button data-action="right" aria-label="Наклон вперёд">↷</button></div><div class="touch-cluster pedals"><button data-action="boost" class="boost-pedal">ТУРБО</button><button data-action="gas" class="gas-pedal">ГАЗ</button></div></div>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-card" id="modal-card"></div></div>
+<div id="rotate-hint"><span>↻</span><strong>ПОВЕРНИ ЭКРАН</strong><p>Трассе нужен простор.<br>Удобнее играть горизонтально.</p><button id="rotate-dismiss" class="secondary">Всё равно играть</button></div>
+<footer id="footer"><span>СВОЙ РИТМ. СВОЯ ТРАЕКТОРИЯ.</span><span>ОРИГИНАЛЬНАЯ МИНИ-АРКАДА <b>↗</b></span></footer>
+<div id="storage-warning" class="hidden">Хранилище недоступно. Прогресс сохранится только до закрытия страницы.</div>
+</main>
+<script src="core.js?v=7-collisions"></script><script src="game.js?v=7-collisions"></script>
+</body></html>
