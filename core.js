@@ -55,11 +55,11 @@
       const lanes=type==='ramp' ? (n%2===0?[0,1,2,3]:[lane,(lane+1)%4,(lane+2)%4]) : type==='cool' ? [lane,(lane+1)%4] : [lane];
       const shape=['kicker','tabletop','high','long'][(rampCount+local+biome)%4];
       if(type==='ramp')rampCount++;
-      const geometry=type==='ramp'?RAMP_SHAPES[shape]:{w:type==='cool'?310:type==='mud'?185:38,h:0};
+      const geometry=type==='ramp'?RAMP_SHAPES[shape]:{w:type==='cool'?310:type==='mud'?185:8,h:type==='barrier'?32:0};
       features.push({id:n,type,x,lanes,...geometry,...(type==='ramp'?{shape}: {})});
       // Linked doubles have a landing runway: no hidden barrier at the end of a jump.
       // Minimum launch-to-next-feature gap > longest boosted flight (~965 world units).
-      if(type==='ramp'&&n%2===0)features.push({id:2000+n,type:'barrier',x:x+geometry.w+350,w:38,h:0,lanes:[lane]});
+      if(type==='ramp'&&n%2===0)features.push({id:2000+n,type:'barrier',x:x+geometry.w+350,w:8,h:32,lanes:[lane]});
       x+=type==='ramp'?geometry.w+(shape==='high'?1400:1100)+rand()*90:380+rand()*130-biome*10;n++;
     }
     // Every track has an early, visible safe cooldown opportunity.
@@ -137,7 +137,7 @@
     }
     for(const f of sim.course.features){
       if(!f.lanes.includes(lane))continue;
-      if(f.type==='barrier'&&r.x>=f.x&&oldX<f.x+f.w&&r.z<20&&!r.seen.has(f.id)){r.seen.add(f.id);crash(r,sim,'ПРЕПЯТСТВИЕ');}
+      if(f.type==='barrier'&&r.x>=f.x&&oldX<f.x+f.w&&r.z<(f.h||32)&&!r.seen.has(f.id)){r.seen.add(f.id);crash(r,sim,'ПРЕПЯТСТВИЕ');}
     }
     if(r.x>=sim.course.length){r.x=sim.course.length;r.finished=true;r.finishTime=sim.time;if(!r.ai)sim.events.push({type:'finish'});}
   }

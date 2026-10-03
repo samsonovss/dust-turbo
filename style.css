@@ -20,3 +20,6 @@
 #mp-roster li {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid #ffffff20}
 #mp-roster li span {overflow-wrap:anywhere;min-width:0}
 #mp-roster li strong {margin-left:auto;white-space:nowrap;text-align:right;color:var(--mint,#83ecdf)}
+
+/* Human-only online distance markers, slot offsets keep tied starts visible. */
+.race-progress.online i:after{display:none}#race-progress-people{position:absolute;inset:0;pointer-events:auto}.racer-dot{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-25%);border:1px solid #171922;box-shadow:0 1px 3px #0009}.racer-dot.local{outline:1px solid white;z-index:2}

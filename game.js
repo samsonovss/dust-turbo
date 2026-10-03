@@ -74,8 +74,10 @@
     $('record-time').textContent = save.records[id] ? `РЕКОРД ${timeText(save.records[id].time)}` : 'РЕКОРД —';
     $('race-tip').textContent = 'Z / W — ГАЗ  ·  X / ПРОБЕЛ — ТУРБО  ·  ↑ ↓ — ПОЛОСА  ·  ← → — БАЛАНС В ПОЛЁТЕ';
     if (matchMedia('(pointer: coarse)').matches) $('race-tip').textContent = 'ДЕРЖИ ГАЗ · ↶ ↷ — БАЛАНС В ПОЛЁТЕ · ГОЛУБОЕ ОХЛАЖДАЕТ';
-    if(network) { race.opponents=[]; race.multiplayer=true; race.player.lane=race.player.targetLane=M.slot; }
-    $('field-size').textContent=network?String(M.players.length):'4';
+    if(network) { race.opponents=[]; race.multiplayer=true; race.player.lane=race.player.targetLane=M.slot; race.player.color=['#83ecdf','#ffa6dd','#f7cf68','#a7b9ff'][M.slot]; race.player.name=M.players.find(p=>p.slot===M.slot)?.name||'ТЫ'; }
+    $('field-size').textContent='4';
+    $('race-progress-people').replaceChildren();
+    $('race-progress-fill').parentElement.classList.toggle('online',network);
     updateHUD();
   }
   function pause(toggle = true) {
@@ -124,7 +126,20 @@
     if (!race) return;
     if(M.active)race.place=1+M.remotes.filter(p=>p.finished?(!race.player.finished||p.finishTime<race.player.finishTime):p.x>race.player.x).length;
     const r = race.player; $('position').textContent = race.place; $('timer').textContent = timeText(race.time); $('speed').textContent = Math.round(r.speed);
-    $('race-progress-fill').style.width = `${100 * r.x / race.course.length}%`; $('heat-value').textContent = `${Math.round(r.heat)}%`;
+    $('race-progress-fill').style.width = `${100 * C.clamp(r.x / race.course.length,0,1)}%`; $('heat-value').textContent = `${Math.round(r.heat)}%`;
+    if(M.active) {
+      const track=$('race-progress-people'), colors=['#83ecdf','#ffa6dd','#f7cf68','#a7b9ff'];
+      const ids=new Set(M.players.map(p=>p.id));
+      for(const dot of [...track.children])if(!ids.has(dot.dataset.id))dot.remove();
+      for(const person of M.players) {
+        let dot=[...track.children].find(d=>d.dataset.id===person.id);
+        if(!dot){dot=document.createElement('span');dot.className='racer-dot';dot.dataset.id=person.id;track.append(dot);}
+        const local=person.slot===M.slot, state=local?r:M.remotes.find(p=>p.id===person.id);
+        dot.style.left=`${100*C.clamp((state?.x||0)/race.course.length,0,1)}%`;
+        dot.style.top=`${(person.slot-1.5)*5}px`;dot.style.background=colors[person.slot];
+        dot.title=person.name+(local?' (вы)':'');dot.setAttribute('aria-label',dot.title);dot.classList.toggle('local',local);
+      }
+    }
     $('heat-fill').style.width = `${r.heat}%`; $('heat-fill').style.background = r.overheat ? '#ff6262' : r.heat > 75 ? '#ff9864' : 'var(--accent)';
     $('heat-label').textContent = r.cooling ? 'ОХЛАЖДЕНИЕ МОТОРА' : r.overheat ? 'ПЕРЕГРЕВ / ОСТЫВАЕМ' : 'ТЕМПЕРАТУРА';
     const counting = race.phase === 'countdown'; visible('countdown', counting || clock < goUntil);
@@ -203,9 +218,17 @@
       const ax=x+lip*viewScale*.52, ay=y-f.h*.52;
       poly([[ax-10,ay-8],[ax+12,ay-4],[ax-10,ay+9]],'#fff0b3');
     } else {
-      rect(x-3,y+13,w+7,10,'#392d38');rect(x,y-21,w,37,'#e6b566');
-      for(let j=0;j<w;j+=12)poly([[x+j,y-21],[x+Math.min(j+7,w),y-21],[x+Math.min(j+14,w),y+16],[x+Math.min(j+7,w),y+16]],'#4b3a42');
-      rect(x-3,y-25,w+6,6,'#ffe2a0');rect(x+4,y+16,5,8,'#3a3440');rect(x+w-8,y+16,5,8,'#3a3440');
+      // A short upright hurdle: narrow travel footprint, open frame across the lane.
+      // Its top is exactly f.h above wheel contact, as used by core collision.
+      const front=x+w, h=f.h||32, near=y+9, far=y-19;
+      poly([[x,far+3],[front,far+3],[front,near+3],[x,near+3]],'#392d3855');
+      for(const foot of [far,near]) {
+        rect(x,foot-2,w,4,'#555562');
+        rect(x,foot-h,Math.max(3,w*.18),h,'#e9d6b4');
+        rect(x,foot-h,w,6,'#ffc976');
+      }
+      poly([[x,far-h],[front,far-h],[front,near-h],[x,near-h]],'#ffe2a0');
+      for(let j=0;j<28;j+=9)poly([[x,far-h+j],[front,far-h+j],[front,far-h+j+4],[x,far-h+j+4]],'#70516a');
     }
   }
   function burst(r,n,color) { for(let i=0;i<n;i++)particles.push({x:r.x-15,y:laneY(r.lane)-r.z,vx:-30-Math.random()*100,vy:-20-Math.random()*75,life:.3+Math.random()*.5,max:.8,color,size:2+Math.random()*5}); }
@@ -245,12 +268,13 @@
     const course=race?race.course:C.COURSES[biome*6];
     if(race){const fx=screenX(course.length);if(fx>-100&&fx<W+100){rect(fx-7,roadTop-94,7,94,'#ede0c3');rect(fx-7,roadTop-95,107,27,'#292b37');ctx.fillStyle='#fff0cc';ctx.font='bold 16px monospace';ctx.textAlign='left';ctx.fillText('ФИНИШ',fx+10,roadTop-75);}}
     const fs=race?course.features:[{x:camera+W*.57/viewScale,...C.RAMP_SHAPES.kicker,lanes:[0,1,2,3],type:'ramp'},{x:camera+W*.82/viewScale,w:180,h:0,lanes:[2,3],type:'cool'}];
+    const renderRemotes=M.active?(M.renderRemotes?.()||M.remotes):[];
     for(let lane=0;lane<4;lane++) {
       fs.forEach(f=>{if(f.lanes.includes(lane))feature(f,lane,b);});
       if(race) {
         if(screenX(0)>-30&&screenX(0)<W)for(let j=0;j<8;j++)rect(screenX(0),roadTop+lane*laneH+j*8,10,8,j%2?'#e4d9bb':'#34303c');
         const finishX=screenX(course.length);if(finishX>-40&&finishX<W+40)for(let row=0;row<8;row++)for(let col=0;col<3;col++)rect(finishX+col*9,roadTop+lane*laneH+row*8,9,8,(row+col)%2?'#fff0d7':'#34303c');
-        [...race.opponents,...(M.active?M.remotes:[]),race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
+        [...race.opponents,...(M.active?renderRemotes:[]),race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
       }else if(lane===2){rider({x:camera+W*.43/viewScale,lane:2,z:5+Math.max(0,Math.sin(clock*.9))*36,angle:-.12,speed:110,color:'#ffe578',name:'ТЫ',boosting:true,crash:0},true,true);}
     }
     if(race&&race.player.speed>30&&!race.player.airborne&&!paused&&race.phase==='racing'&&Math.random()<.7)burst(race.player,1,b.edge);
