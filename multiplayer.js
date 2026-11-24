@@ -18,14 +18,35 @@ function receive(d){
  const p={...d.p,id:d.id,name:person.name,color:colors[person.slot]||colors[0],ai:false,remote:true,bot:!!d.bot};
  let h=histories.get(d.id);if(!h){h=[];histories.set(d.id,h);}if(h.length&&d.seq<=h[h.length-1].seq)return;
  // Server receive time, never the sender's wall clock. Old servers use local receive time.
- const at=Number.isFinite(d.at)?d.at:now()+offset;if(h.length&&at<h[h.length-1].at)return;
- h.push({at,seq:d.seq,p});while(h.length>40)h.shift();
+ const arrived=now()+offset,stamp=Number.isFinite(d.at)?d.at:arrived;
+ const prev=h[h.length-1];if(prev&&stamp<prev.stamp)return;
+ let at=stamp;
+ if(prev&&!d.bot){
+  // Humans are stamped on receipt by the relay. Reconstruct short moving
+  // intervals from integrated distance so bunched uploads do not create sprints.
+  const speed=(p.speed+prev.p.speed)/2;
+  const motionMs=speed>1?(p.x-prev.p.x)*1000/speed:0;
+  if(motionMs>0&&motionMs<=350&&stamp-prev.stamp<=500){
+   at=Math.max(stamp-250,Math.min(stamp+250,prev.at+motionMs));
+  }
+  at=Math.max(prev.at,at);
+ }
+ // Budget for the age of the previous sample at the moment its successor
+ // arrives. Grow promptly under jitter; relax only gradually on a clean link.
+ const required=prev?arrived-prev.at+17:125;
+ h.delay=Math.max(125,Math.min(450,required),(h.delay||125)-1);
+ h.push({at,stamp,seq:d.seq,p});while(h.length>40)h.shift();
  const i=M.remotes.findIndex(r=>r.id===d.id);if(i<0)M.remotes.push(p);else M.remotes[i]=p;
  M.remote=M.remotes[0]||null;api.remote?.(p);
 }
 M.renderRemotes=()=>{
- const target=now()+offset-125;
- return M.remotes.map(p=>{const h=histories.get(p.id);if(!h?.length)return {...p};let a=h[0],b;
+ const clock=now(),serverNow=clock+offset;
+ return M.remotes.map(p=>{const h=histories.get(p.id);if(!h?.length)return {...p};let target=serverNow-h.delay;
+ // Slew the playback clock rather than jumping when network delay changes.
+ const elapsed=clock-h.lastFrame;
+ if(elapsed>=0&&elapsed<250)target=Math.max(h.cursor+elapsed*.93,Math.min(h.cursor+elapsed*1.07,target));
+ h.cursor=target;h.lastFrame=clock;
+ let a=h[0],b;
  for(let i=1;i<h.length;i++){if(h[i].at>target){b=h[i];break;}a=h[i];}
  const out={...a.p};if(target<a.at)return out;
  if(b){const t=Math.max(0,Math.min(1,(target-a.at)/Math.max(1,b.at-a.at)));

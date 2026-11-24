@@ -9,6 +9,7 @@
   try { save = C.parseSave(localStorage.getItem(KEY)); } catch (_) { save = C.freshSave(); $('storage-warning').classList.remove('hidden'); }
   let selected = save.unlocked, biome = Math.floor(selected / 6), race = null, paused = false, camera = 0;
   let width = 1280, height = 720, clock = 0, last = 0, accumulator = 0, toastUntil = 0, goUntil = 0;
+  let cleanStreak = 0;
   let particles = [], audio = null, engine = null, engineGain = null, engineBass = null, networkTick = 0, focusBeforeModal = null, worldClock = 0;
   const keys = new Set(), pointers = new Map();
   const pad = n => String(n).padStart(2, '0');
@@ -65,6 +66,7 @@
   function showModal(html) { focusBeforeModal = document.activeElement; $('modal-card').innerHTML = html; visible('modal', true); $('modal-card').querySelector('button').focus(); }
   function home() { if(M.active)M.leave(); release(); race = null; paused = false; particles = []; goUntil = 0; $('toast').classList.remove('show'); closeModal(); document.body.classList.remove('racing'); visible('menu', true); ['hud','pause','race-tip','touch-controls','countdown'].forEach(id => visible(id, false)); menuUI(); }
   function start(id = selected, network = false) {
+    cleanStreak=0;
     if(M.active && !network) { toast('Новый заезд запускает ведущий в сетевой комнате'); return; }
     id = C.clamp(Math.floor(Number(id)) || 0, 0, 29); selected = id; biome = C.COURSES[id].biome;
     release(); closeModal(); race = C.createRace(id); paused = false; particles = []; camera = -cameraLead(); accumulator = 0; goUntil = 0;
@@ -116,8 +118,8 @@
     race.events.forEach(e => {
       if (e.type === 'go') { goUntil = clock + .8; beep(660, .16); }
       if (e.type === 'jump') { burst(race.player, 8, '#ffe3a0'); beep(440, .06, .018); }
-      if (e.type === 'land') { burst(race.player, 13, C.BIOMES[biome].edge); if (e.perfect) toast('ЧИСТОЕ ПРИЗЕМЛЕНИЕ'); }
-      if (e.type === 'crash') { burst(race.player, 22, '#ffac72'); toast(e.reason); beep(85, .25); }
+      if (e.type === 'land') { burst(race.player, 13, C.BIOMES[biome].edge); cleanStreak=e.perfect?cleanStreak+1:0; if(e.perfect)toast(cleanStreak>1?'СЕРИЯ ЧИСТЫХ ПОСАДОК ×'+cleanStreak:'ЧИСТОЕ ПРИЗЕМЛЕНИЕ'); }
+      if (e.type === 'crash') { cleanStreak=0; burst(race.player, 22, '#ffac72'); toast(e.reason); beep(85, .25); }
       if (e.type === 'hot') { toast('ПЕРЕГРЕВ! ОТПУСТИ ТУРБО'); beep(120, .3); }
       if (e.type === 'finish') finish();
     });
@@ -216,6 +218,8 @@
       rect(x+lip*viewScale-4,y-23-f.h,4,48,'#ffe2a0');
       for(let j=18;j<f.w-8;j+=28){const h=C.rampHeight(f,f.x+j), next=C.rampHeight(f,f.x+j+6);poly([[x+j*viewScale,y-20-h],[x+(j+6)*viewScale,y-20-next],[x+(j+6)*viewScale,y+21-next],[x+j*viewScale,y+21-h]],'#8c6655');}
       const ax=x+lip*viewScale*.52, ay=y-f.h*.52;
+      // Painted lip and reflective chevrons distinguish the steep kicker at speed.
+      if(f.shape==='high'){rect(x+lip*viewScale-6,y-23-f.h,6,48,'#ff754c');for(const off of [-14,0,14])poly([[ax-23,ay+off-5],[ax-15,ay+off],[ax-23,ay+off+5]],'#ffecae');}
       poly([[ax-10,ay-8],[ax+12,ay-4],[ax-10,ay+9]],'#fff0b3');
     } else {
       // A short upright hurdle: narrow travel footprint, open frame across the lane.
@@ -236,6 +240,18 @@
     const x=screenX(r.x), base=laneY(r.lane)+9; if(x<-100||x>W+120)return;
     const ground=race?C.surface(race.course,r.x,Math.round(r.lane)).height:0;
     ctx.globalAlpha=.24;ctx.fillStyle='#141421';ctx.beginPath();ctx.ellipse(x,base+5-ground,Math.max(15,38-(r.z-ground)*.04),8,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+    if(isPlayer && r.airborne && !demo){
+      // Two small wheel-height indicators, aligned when the bike is level.
+      // Project the landing on this lane assuming current horizontal speed.
+      const ink=Math.abs(r.angle)<=.32?'#a4f1c9':'#ffab79', g=C.PHYSICS.gravity;
+      let t=(r.vz+Math.sqrt(r.vz*r.vz+2*g*Math.max(0,r.z)))/g;
+      let spot=r.x+r.speed*t, sy=C.surface(race.course,spot,Math.round(r.lane)).height;
+      if(sy>0){const disc=r.vz*r.vz+2*g*(r.z-sy);if(disc>=0){t=(r.vz+Math.sqrt(disc))/g;spot=r.x+r.speed*t;sy=C.surface(race.course,spot,Math.round(r.lane)).height;}}
+      const sx=screenX(spot), gy=base+6-sy;
+      if(sx<W-12&&spot<race.course.length){rect(sx-22,gy,44,3,'#202431');rect(sx-20,gy,10,3,ink);rect(sx+10,gy,10,3,ink);poly([[sx-5,gy-8],[sx+5,gy-8],[sx,gy-2]],ink);}
+      const by=base-r.z-82;rect(x-16,by,32,2,'#232932');
+      for(const dx of [-12,12])rect(x+dx-2,by+dx*Math.sin(r.angle)-1,5,4,ink);
+    }
     const bob=r.airborne||r.z>0?0:Math.sin(worldClock*(r.speed>5?22:5))*(r.speed>5?1.1:.35);
     const y=base-r.z+bob;
     ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.rotate(r.crash>0 ? .9 : (r.airborne||demo?r.angle:Math.atan(Math.tan(r.angle)/viewScale)));
