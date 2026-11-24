@@ -9,7 +9,7 @@
   try { save = C.parseSave(localStorage.getItem(KEY)); } catch (_) { save = C.freshSave(); $('storage-warning').classList.remove('hidden'); }
   let selected = save.unlocked, biome = Math.floor(selected / 6), race = null, paused = false, camera = 0;
   let width = 1280, height = 720, clock = 0, last = 0, accumulator = 0, toastUntil = 0, goUntil = 0;
-  let cleanStreak = 0;
+  let cleanStreak = 0, landedAt = -10;
   let particles = [], audio = null, engine = null, engineGain = null, engineBass = null, networkTick = 0, focusBeforeModal = null, worldClock = 0;
   const keys = new Set(), pointers = new Map();
   const pad = n => String(n).padStart(2, '0');
@@ -66,7 +66,7 @@
   function showModal(html) { focusBeforeModal = document.activeElement; $('modal-card').innerHTML = html; visible('modal', true); $('modal-card').querySelector('button').focus(); }
   function home() { if(M.active)M.leave(); release(); race = null; paused = false; particles = []; goUntil = 0; $('toast').classList.remove('show'); closeModal(); document.body.classList.remove('racing'); visible('menu', true); ['hud','pause','race-tip','touch-controls','countdown'].forEach(id => visible(id, false)); menuUI(); }
   function start(id = selected, network = false) {
-    cleanStreak=0;
+    cleanStreak=0; landedAt=-10;
     if(M.active && !network) { toast('Новый заезд запускает ведущий в сетевой комнате'); return; }
     id = C.clamp(Math.floor(Number(id)) || 0, 0, 29); selected = id; biome = C.COURSES[id].biome;
     release(); closeModal(); race = C.createRace(id); paused = false; particles = []; camera = -cameraLead(); accumulator = 0; goUntil = 0;
@@ -118,7 +118,7 @@
     race.events.forEach(e => {
       if (e.type === 'go') { goUntil = clock + .8; beep(660, .16); }
       if (e.type === 'jump') { burst(race.player, 8, '#ffe3a0'); beep(440, .06, .018); }
-      if (e.type === 'land') { burst(race.player, 13, C.BIOMES[biome].edge); cleanStreak=e.perfect?cleanStreak+1:0; if(e.perfect)toast(cleanStreak>1?'СЕРИЯ ЧИСТЫХ ПОСАДОК ×'+cleanStreak:'ЧИСТОЕ ПРИЗЕМЛЕНИЕ'); }
+      if (e.type === 'land') { landedAt=worldClock; burst(race.player, 13, C.BIOMES[biome].edge); cleanStreak=e.perfect?cleanStreak+1:0; if(e.perfect)toast(cleanStreak>1?'СЕРИЯ ЧИСТЫХ ПОСАДОК ×'+cleanStreak:'ЧИСТОЕ ПРИЗЕМЛЕНИЕ'); }
       if (e.type === 'crash') { cleanStreak=0; burst(race.player, 22, '#ffac72'); toast(e.reason); beep(85, .25); }
       if (e.type === 'hot') { toast('ПЕРЕГРЕВ! ОТПУСТИ ТУРБО'); beep(120, .3); }
       if (e.type === 'finish') finish();
@@ -221,6 +221,8 @@
       const bottom=profile.map(([dx,h])=>[x+dx*viewScale,y+25-h]);
       poly([[x,y+25],...bottom,[x+w,y+25]],'#65404a');
       poly([...top,...bottom.slice().reverse()],'#dca069');
+      poly([[x,y+25],[x+w,y+25-f.h],[x+w,y+29-f.h],[x,y+29]],'#513643');
+      poly([[x,y-23],[x+w,y-23-f.h],[x+w,y-20-f.h],[x,y-20]],'#ffe0a6');
       rect(x+lip*viewScale-4,y-23-f.h,4,48,'#ffe2a0');
       for(let j=18;j<f.w-8;j+=28){const h=C.rampHeight(f,f.x+j), next=C.rampHeight(f,f.x+j+6);poly([[x+j*viewScale,y-20-h],[x+(j+6)*viewScale,y-20-next],[x+(j+6)*viewScale,y+21-next],[x+j*viewScale,y+21-h]],'#8c6655');}
       const ax=x+lip*viewScale*.52, ay=y-f.h*.52;
@@ -270,12 +272,19 @@
       rect(wx-8,-8,16,15,'#aba8ad');rect(wx-5,-5,10,9,'#343c4b');
       const spin=r.x*.11;ctx.strokeStyle='#e8d6bd';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(wx-Math.cos(spin)*7,-1-Math.sin(spin)*7);ctx.lineTo(wx+Math.cos(spin)*7,-1+Math.sin(spin)*7);ctx.stroke();rect(wx-2,-3,4,4,'#ffe9be');
     }
+    // Wheels stay planted while the sprung chassis compresses and rebounds.
+    const age=worldClock-landedAt, squash=isPlayer&&!r.airborne&&!demo&&age>=0&&age<.42?Math.sin(age/.42*Math.PI)*Math.exp(-5*age)*12:0;
+    ctx.translate(0,squash);
     poly([[-24,-2],[-11,-25],[15,-25],[24,-2],[2,-8]],'#242733');
     ctx.strokeStyle='#d2c1b0';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(-23,-2);ctx.lineTo(-8,-19);ctx.lineTo(5,-4);ctx.lineTo(-23,-2);ctx.moveTo(24,-2);ctx.lineTo(17,-30);ctx.stroke();
     rect(-25,-24,20,5,r.color);rect(-15,-29,26,9,r.color);rect(-11,-33,18,5,'#fff0cf');rect(15,-24,20,5,r.color);rect(16,-34,4,14,'#d7c3ba');rect(10,-36,14,3,'#262b36');
     rect(-6,-19,13,11,'#696772');rect(-3,-16,9,2,'#d6c3b4');rect(-3,-12,9,2,'#d6c3b4');rect(-27,-17,17,4,'#c6a68e');
+    poly([[-16,-28],[-7,-34],[8,-33],[15,-27],[3,-24]],r.color);
+    poly([[-7,-34],[8,-33],[12,-30],[-9,-31]],'#fff0cc');
+    poly([[3,-24],[15,-27],[10,-20],[-1,-19]],'#363747');
+    rect(-26,-18,11,3,'#8a909e');rect(-28,-19,4,6,'#3d424f');
     // Articulated legs and forward racing posture.
-    const tuck=r.boosting?5:0, bounce=Math.sin(worldClock*9)*1.5;
+    const tuck=(r.boosting?5:0)+squash*.55, bounce=Math.sin(worldClock*9)*1.5;
     poly([[-11,-36],[-3,-34],[6,-23],[0,-12],[-8,-12],[-3,-24],[-15,-29]],'#313748');rect(-8,-14,13,5,'#f1dbc0');
     poly([[-13,-35],[-14+tuck,-51+bounce],[-2+tuck,-57+bounce],[6+tuck,-47],[0,-33]],r.color);rect(-11+tuck,-49+bounce,6,13,'#fff1ca');
     poly([[3+tuck,-49],[9+tuck,-48],[13,-36],[19,-35],[18,-31],[8,-32]],'#e2ad8a');rect(14,-36,7,5,'#2d3040');
