@@ -10,7 +10,8 @@ const now=()=>performance.timeOrigin+performance.now(),status=s=>{if($('mp-statu
 function send(d){if(ws?.readyState===1)ws.send(JSON.stringify({v:2,...d}));}
 function controls(){const me=M.players.find(p=>p.id===id);$('mp-start').disabled=!me||!M.connected||phase==='racing';$('mp-start').textContent=me?.ready?'НЕ ГОТОВ':'ГОТОВ';$('mp-start').setAttribute('aria-pressed',String(!!me?.ready));}
 function statusLine(){if(!M.connected)return;const me=M.players.some(p=>p.id===id);status(phase==='racing'?(me?'Заезд идёт':'Заезд идёт. Вы ждёте следующий старт.'):!me?'Лобби заполнено. Вы в очереди на следующий заезд.':phase==='countdown'?'Все готовы! Старт через '+Math.max(0,Math.ceil((countdownAt-offset-now())/1000))+' с.':M.players.length<2?'Ждём игроков. Для старта нужно хотя бы двое.':'Нажмите «Готов». Когда готовы все — старт через 3 секунды.');}
-function clearStates(){histories.clear();renderedX.clear();M.remotes=[];M.remote=null;}
+const arrivals=new Map();let peakGap=0;M.takeGap=()=>{const gap=peakGap;peakGap=0;return Math.round(gap);};
+function clearStates(){arrivals.clear();peakGap=0;histories.clear();renderedX.clear();M.remotes=[];M.remote=null;}
 function clean(){generation++;clearInterval(timer);clearTimeout(retryTimer);if(ws){ws.onclose=null;ws.close();ws=null;}M.connected=false;M.running=false;clearStates();M.players=[];M.results=null;best=Infinity;phase='waiting';}
 function disconnected(g){if(g!==generation||!M.active)return;clean();api.interrupt();$('mp-panel').classList.remove('hidden');status('Связь потеряна. Переподключаемся автоматически…');controls();const delay=Math.min(10000,600*2**Math.min(attempt++,5));retryTimer=setTimeout(()=>{if(M.active)connect(true);},delay);}
 function receive(d){
@@ -18,6 +19,7 @@ function receive(d){
  const p={...d.p,id:d.id,name:person.name,color:colors[person.slot]||colors[0],ai:false,remote:true,bot:!!d.bot};
  let h=histories.get(d.id);if(!h){h=[];histories.set(d.id,h);}if(h.length&&d.seq<=h[h.length-1].seq)return;
  // Server receive time, never the sender's wall clock. Old servers use local receive time.
+ if(!d.bot){const time=performance.now(),last=arrivals.get(d.id);if(last!==undefined)peakGap=Math.max(peakGap,time-last);arrivals.set(d.id,time);}
  const arrived=now()+offset,stamp=Number.isFinite(d.at)?d.at:arrived;
  const prev=h[h.length-1];if(prev&&stamp<prev.stamp)return;
  let at=stamp;

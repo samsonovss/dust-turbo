@@ -293,21 +293,28 @@
     if(isPlayer&&!demo) {rect(x-3,y-94,6,5,'#fff1c4');poly([[x-6,y-90],[x+6,y-90],[x,y-84]],'#fff1c4');}
     if(!demo){ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillStyle=isPlayer?'#fff2c8':r.color;ctx.fillText(r.name,x,y-103);}
   }
+  // Local simulation stays at 60 Hz; camera and bike sample the same render pose.
+  const previous=new WeakMap();
+  function remember(r){let v=previous.get(r);if(!v){v={};previous.set(r,v);}for(const k of ['x','z','lane','angle'])v[k]=r[k];}
+  function pose(r){const v=previous.get(r);if(!v||paused||race.phase!=='racing'||r.finished)return r;const a=C.clamp(accumulator*60,0,1),out={...r};for(const k of ['x','z','lane','angle'])out[k]=v[k]+(r[k]-v[k])*a;return out;}
+  const diagnose=new URLSearchParams(location.search).has('diag');let peakFrame=0,nextReport=0;
   function render(dt) {
     ctx.setTransform(unit,0,0,unit,0,0);
-    if(race)camera = race.player.x-cameraLead();
+    const local=race?pose(race.player):null;
+    if(race)camera = local.x-cameraLead();
     else camera=clock*45;
     const b=C.BIOMES[biome];backdrop(b);
     const course=race?race.course:C.COURSES[biome*6];
     if(race){const fx=screenX(course.length);if(fx>-100&&fx<W+100){rect(fx-7,roadTop-94,7,94,'#ede0c3');rect(fx-7,roadTop-95,107,27,'#292b37');ctx.fillStyle='#fff0cc';ctx.font='bold 16px monospace';ctx.textAlign='left';ctx.fillText('ФИНИШ',fx+10,roadTop-75);}}
     const fs=race?course.features:[{x:camera+W*.57/viewScale,...C.RAMP_SHAPES.kicker,lanes:[0,1,2,3],type:'ramp'},{x:camera+W*.82/viewScale,w:180,h:0,lanes:[2,3],type:'cool'}];
     const renderRemotes=M.active?(M.renderRemotes?.()||M.remotes):[];
+    const sprites=race?[...race.opponents.map(pose),...renderRemotes,local]:[];
     for(let lane=0;lane<4;lane++) {
       fs.forEach(f=>{if(f.lanes.includes(lane))feature(f,lane,b);});
       if(race) {
         if(screenX(0)>-30&&screenX(0)<W)for(let j=0;j<8;j++)rect(screenX(0),roadTop+lane*laneH+j*8,10,8,j%2?'#e4d9bb':'#34303c');
         const finishX=screenX(course.length);if(finishX>-40&&finishX<W+40)for(let row=0;row<8;row++)for(let col=0;col<3;col++)rect(finishX+col*9,roadTop+lane*laneH+row*8,9,8,(row+col)%2?'#fff0d7':'#34303c');
-        [...race.opponents,...(M.active?renderRemotes:[]),race.player].filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===race.player));
+        sprites.filter(r=>Math.round(r.lane)===lane).sort((a,b)=>a.lane-b.lane).forEach(r=>rider(r,r===local));
       }else if(lane===2){rider({x:camera+W*.43/viewScale,lane:2,z:5+Math.max(0,Math.sin(clock*.9))*36,angle:-.12,speed:110,color:'#ffe578',name:'ТЫ',boosting:true,crash:0},true,true);}
     }
     if(race&&race.player.speed>30&&!race.player.airborne&&!paused&&race.phase==='racing'&&Math.random()<.7)burst(race.player,1,b.edge);
@@ -315,9 +322,10 @@
     if(race&&race.player.speed>280&&!paused){const speed=race.player.speed;for(let i=0;i<(race.player.boosting?8:4);i++)rect((W-(worldClock*speed*1.6+i*173)%W),330+(i*61)%330,12+speed*.035+i*3,2,race.player.boosting?'#fff6d832':'#fff6d817');}
   }
   function frame(now) {
-    const dt=Math.min((now-last)/1000||0,.1);last=now;clock+=dt;if(!paused)worldClock+=dt;
-    if(race&&!paused){accumulator+=dt;while(accumulator>=1/60){advance(1/60,input());accumulator-=1/60;}}else accumulator=0;
-    networkTick+=dt;if(networkTick>=.05){networkTick=0;M.tick();}
+    const frameMs=last?now-last:0,dt=Math.min(frameMs/1000,.1);last=now;clock+=dt;if(!paused)worldClock+=dt;
+    if(race&&!paused){accumulator+=dt;while(accumulator>=1/60){remember(race.player);race.opponents.forEach(remember);advance(1/60,input());accumulator-=1/60;}}else accumulator=0;
+    networkTick+=dt;if(networkTick>=.05){networkTick%=.05;M.tick();}
+    if(diagnose&&M.running){peakFrame=Math.max(peakFrame,frameMs);if(now>=nextReport){const el=$('race-tip');el.classList.remove('hidden');el.textContent=`КАДР: ${Math.round(peakFrame)} мс · ПАУЗА ОБНОВЛЕНИЙ ДРУГА: ${M.takeGap()} мс (макс. за 2 с)`;peakFrame=0;nextReport=now+2000;}}
     render(dt);updateHUD();if(clock>toastUntil)$('toast').classList.remove('show');
     if(engineGain&&audio){const active=save.sound&&race&&!paused&&race.phase!=='finished'&&!document.hidden;const p=race&&race.player,n=p?C.clamp(p.speed/C.PHYSICS.turbo,0,1):0;const pitch=65+115*Math.pow(n,.75)+(p&&p.boosting?12:0);engineGain.gain.setTargetAtTime(active?(p.crash>0?.012:.022+n*.012):0,audio.currentTime,.09);engine.frequency.setTargetAtTime(pitch,audio.currentTime,.10);engineBass.frequency.setTargetAtTime(pitch/2,audio.currentTime,.12);}
     requestAnimationFrame(frame);
