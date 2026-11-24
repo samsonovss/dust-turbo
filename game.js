@@ -207,7 +207,13 @@
       ctx.save();ctx.fillStyle='#e3ffff';ctx.font='bold 13px monospace';ctx.textAlign='left';ctx.fillText('ОХЛАЖДЕНИЕ',Math.max(x+12,12),y-30);ctx.restore();
       for(let j=0;j<5;j++){const xx=x+8+j*(w-20)/5;rect(xx,y-8+Math.sin(clock*3+j)*3,13,3,'#a5eeeb');rect(xx-3,y+9,9,2,'#76c8cd');}
     } else if(f.type==='mud') {rect(x,y-21,w,42,'#594341');rect(x+7,y-25,w-18,7,'#594341');rect(x+12,y-10,22,5,'#806049');rect(x+52,y+7,27,5,'#372e36');rect(x+6,y+15,16,3,'#a07151');}
-    else if(f.type==='ramp') {
+    else if(f.type==='landing') {
+      const peak=x+f.lip*viewScale,end=x+w;
+      poly([[x,y+24],[peak,y+24-f.h],[end,y+24]],b.ground);
+      poly([[x,y-23],[peak,y-23-f.h],[end,y-23],[end,y+24],[peak,y+24-f.h],[x,y+24]],b.dirt);
+      poly([[x,y-23],[peak,y-23-f.h],[end,y-23],[end,y-20],[peak,y-20-f.h],[x,y-20]],b.edge);
+      for(let n=1;n<=4;n++){const d=f.lip+(f.w-f.lip)*n/5,px=x+d*viewScale,py=y-C.rampHeight(f,f.x+d);poly([[px-9,py-7],[px+7,py],[px-9,py+7],[px-4,py],[px-9,py-7]],'#a4f1c9');}
+    } else if(f.type==='ramp') {
       const lip=f.lip||f.w;
       const profile=[[0,0],[lip,f.h]];
       if(f.deck)profile.push([lip+f.deck,f.h],[f.w,0]);
@@ -243,10 +249,12 @@
     if(isPlayer && r.airborne && !demo){
       // Two small wheel-height indicators, aligned when the bike is level.
       // Project the landing on this lane assuming current horizontal speed.
-      const ink=Math.abs(r.angle)<=.32?'#a4f1c9':'#ffab79', g=C.PHYSICS.gravity;
-      let t=(r.vz+Math.sqrt(r.vz*r.vz+2*g*Math.max(0,r.z)))/g;
-      let spot=r.x+r.speed*t, sy=C.surface(race.course,spot,Math.round(r.lane)).height;
-      if(sy>0){const disc=r.vz*r.vz+2*g*(r.z-sy);if(disc>=0){t=(r.vz+Math.sqrt(disc))/g;spot=r.x+r.speed*t;sy=C.surface(race.course,spot,Math.round(r.lane)).height;}}
+      const g=C.PHYSICS.gravity,lane=Math.round(r.lane);
+      const flight=(r.vz+Math.sqrt(r.vz*r.vz+2*g*Math.max(0,r.z)))/g;
+      let t=flight, hit=C.surface(race.course,r.x+r.speed*t,lane);
+      // Find first contact, including a downslope before the flat-ground intercept.
+      for(let i=1;i<=24;i++){const ti=flight*i/24,ground=C.surface(race.course,r.x+r.speed*ti,lane);if(r.z+r.vz*ti-.5*g*ti*ti<=ground.height){let lo=flight*(i-1)/24,hi=ti;for(let j=0;j<5;j++){const m=(lo+hi)/2;if(r.z+r.vz*m-.5*g*m*m>C.surface(race.course,r.x+r.speed*m,lane).height)lo=m;else hi=m;}t=hi;hit=C.surface(race.course,r.x+r.speed*t,lane);break;}}
+      const spot=r.x+r.speed*t, sy=hit.height, ink=Math.abs(r.angle+Math.atan(hit.slope))<=.32?'#a4f1c9':'#ffab79';
       const sx=screenX(spot), gy=base+6-sy;
       if(sx<W-12&&spot<race.course.length){rect(sx-22,gy,44,3,'#202431');rect(sx-20,gy,10,3,ink);rect(sx+10,gy,10,3,ink);poly([[sx-5,gy-8],[sx+5,gy-8],[sx,gy-2]],ink);}
       const by=base-r.z-82;rect(x-16,by,32,2,'#232932');
@@ -254,7 +262,7 @@
     }
     const bob=r.airborne||r.z>0?0:Math.sin(worldClock*(r.speed>5?22:5))*(r.speed>5?1.1:.35);
     const y=base-r.z+bob;
-    ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.rotate(r.crash>0 ? .9 : (r.airborne||demo?r.angle:Math.atan(Math.tan(r.angle)/viewScale)));
+    ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.rotate(r.crash>0 ? .9 : (demo?r.angle:Math.atan2(Math.sin(r.angle),viewScale*Math.cos(r.angle))));
     if(r.crash>0)ctx.globalAlpha=.5+Math.sin(clock*30)*.3;
     if(r.boosting&&!r.crash){poly([[-28,-16],[-51-Math.sin(clock*43)*13,-11],[-32,-6]],'#ff8655');poly([[-28,-14],[-44,-11],[-29,-9]],'#ffe59c');}
     for(const wx of [-23,24]) {
@@ -328,7 +336,7 @@
   window.__game={get state(){return {race,paused,selected,biome,save};},start,step(dt,controls={}){let remaining=C.clamp(Number(dt)||0,0,120);while(remaining>0){const slice=Math.min(remaining,1/60);advance(slice,controls);remaining-=slice;}updateHUD();return race;},pause,home};
   resize();soundLabel();menuUI();
   if(save.migrationNotice){
-    showModal('<div class="eyebrow">БОЛЬШЕ СКОРОСТИ · ДЛИННЕЕ ТРАССЫ</div><h2 id="modal-title">НОВЫЙ СЕЗОН.</h2><p>Трассы стали намного длиннее, а мотоциклы — быстрее. Старые времена больше несопоставимы, поэтому рекорды сброшены.<br><br>Все открытые трассы и настройка звука сохранены.</p><button class="primary" id="migration-ok">ПОНЯТНО · НА СТАРТ ↗</button>');
+    if(save.migrationNotice==='course0')showModal('<h2 id="modal-title">Новые склоны</h2><p>На первой трассе изменился рельеф. Сброшен только её рекорд; остальные результаты и открытые уровни сохранены.</p><button id="migration-ok" class="primary">На старт</button>');else showModal('<div class="eyebrow">БОЛЬШЕ СКОРОСТИ · ДЛИННЕЕ ТРАССЫ</div><h2 id="modal-title">НОВЫЙ СЕЗОН.</h2><p>Трассы стали намного длиннее, а мотоциклы — быстрее. Старые времена больше несопоставимы, поэтому рекорды сброшены.<br><br>Все открытые трассы и настройка звука сохранены.</p><button class="primary" id="migration-ok">ПОНЯТНО · НА СТАРТ ↗</button>');
     $('migration-ok').onclick=()=>{delete save.migrationNotice;persist();closeModal();};
   }
   M.init({selected:()=>selected,wake:wakeAudio,player:()=>race&&race.player,home,start:id=>start(id,true),interrupt:()=>{release();paused=true;closeModal();},remote:()=>{},results:()=>{if(race&&race.player.finished)multiplayerResult();}});

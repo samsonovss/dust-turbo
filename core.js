@@ -37,12 +37,12 @@
   function rampSlope(f,x) {
     const d=x-f.x, lip=f.lip||f.w;
     if(d<0||d>f.w)return 0;
-    if(d<lip||!f.deck)return f.h/lip;
-    return d<lip+f.deck?0:-f.h/(f.w-lip-f.deck);
+    if(d<lip||lip===f.w)return f.h/lip;
+    return d<lip+(f.deck||0)?0:-f.h/(f.w-lip-(f.deck||0));
   }
   function surface(course,x,lane) {
     let result={height:0,slope:0,ramp:null};
-    for(const f of course.features)if(f.type==='ramp'&&f.lanes.includes(lane)&&x>=f.x&&x<f.x+f.w){const height=rampHeight(f,x);if(height>=result.height)result={height,slope:rampSlope(f,x),ramp:f};}
+    for(const f of course.features)if((f.type==='ramp'||f.type==='landing')&&f.lanes.includes(lane)&&x>=f.x&&x<f.x+f.w){const height=rampHeight(f,x);if(height>=result.height)result={height,slope:rampSlope(f,x),ramp:f};}
     return result;
   }
   function course(id) {
@@ -61,6 +61,17 @@
       // Minimum launch-to-next-feature gap > longest boosted flight (~965 world units).
       if(type==='ramp'&&n%2===0)features.push({id:2000+n,type:'barrier',x:x+geometry.w+350,w:8,h:32,lanes:[lane]});
       x+=type==='ramp'?geometry.w+(shape==='high'?1400:1100)+rand()*90:380+rand()*130-biome*10;n++;
+    }
+    if(id===0){
+      // Distances are in the same pre-scale coordinates as the generated features.
+      for(const [takeoff,gap,lip,w,h,lanes] of [
+        [0,245,65,550,75,[0,2]],
+        [7,260,70,560,72,[1,3]],
+        [8,315,80,600,96,[1,2]]
+      ]){
+        const ramp=features.find(f=>f.id===takeoff);
+        features.push({id:3000+takeoff,type:'landing',x:ramp.x+ramp.w+gap,lip,w,h,lanes});
+      }
     }
     // Every track has an early, visible safe cooldown opportunity.
     features.push({id:9999,type:'cool',x:230,w:310,lanes:[0,1,2,3],h:0});
@@ -89,7 +100,8 @@
     // Finish riding a slope before changing lanes; no sideways teleport onto a high deck.
     if(wasAir||!oldSurface.ramp) {
       const nextLane=r.lane+clamp(r.targetLane-r.lane,-dt*5,dt*5);
-      if(wasAir||surface(sim.course,r.x,Math.round(nextLane)).height<=r.z+3)r.lane=nextLane;
+      const side=surface(sim.course,r.x,Math.round(nextLane));
+      if(side.height<=r.z+3||(wasAir&&side.ramp?.type!=='landing'))r.lane=nextLane;
     }
     const lane=Math.round(r.lane);
     const under=sim.course.features.filter(f=>r.x>=f.x&&r.x<=f.x+f.w&&f.lanes.includes(lane));
@@ -111,7 +123,7 @@
     let airDt=wasAir?dt:0;
     if(!wasAir){
       const f=oldSurface.ramp;
-      if(f&&oldX<f.x+(f.lip||f.w)&&r.x>=f.x+(f.lip||f.w)&&r.speed>95){
+      if(f&&f.type==='ramp'&&oldX<f.x+(f.lip||f.w)&&r.x>=f.x+(f.lip||f.w)&&r.speed>95){
         const lip=f.x+(f.lip||f.w);
         // Launch from the physical crest with the uphill velocity, never from road level.
         r.z=f.h;r.vz=clamp(r.speed/PHYSICS.normal,0.35,1.5)*(f.shape==='high'?170:f.shape==='long'?135:105);r.airborne=true;
@@ -165,8 +177,27 @@
   }
   function lane(sim,delta){if(sim.player.crash<=0)sim.player.targetLane=clamp(sim.player.targetLane+delta,0,3);}
   function medal(c,time){return time<=c.medals.gold?'gold':time<=c.medals.silver?'silver':time<=c.medals.bronze?'bronze':'finish';}
-  function freshSave(){return {version:2,unlocked:0,records:{},sound:true};}
-  function parseSave(raw){try{const v=JSON.parse(raw);const s=freshSave();if(v&&(v.version===1||v.version===2)){s.unlocked=clamp(Number.isFinite(v.unlocked)?Math.floor(v.unlocked):0,0,29);s.sound=v.sound!==false;if(v.version===1)s.migrationNotice=true;if(v.version===2&&v.migrationNotice===true)s.migrationNotice=true;if(v.version===2&&v.records&&typeof v.records==='object'){for(let i=0;i<30;i++){const r=v.records[i];if(r&&Number.isFinite(r.time)&&r.time>0&&r.time<36000)s.records[i]={time:r.time,place:clamp(Math.floor(r.place)||4,1,4),medal:medal(COURSES[i],r.time)};}}}return s;}catch(_){return freshSave();}}
+  function freshSave(){return {version:3,unlocked:0,records:{},sound:true};}
+  function parseSave(raw){
+    const save=freshSave();
+    try{
+      const v=JSON.parse(raw);
+      if(!v||![1,2,3].includes(v.version))return save;
+      save.unlocked=clamp(Number.isFinite(v.unlocked)?Math.floor(v.unlocked):0,0,29);
+      save.sound=v.sound!==false;
+      if(v.version===1||v.migrationNotice===true)save.migrationNotice=true;
+      if(v.version===3&&v.migrationNotice==='course0')save.migrationNotice='course0';
+      if(v.version>=2&&v.records){
+        for(let i=0;i<30;i++){
+          const r=v.records[i];
+          if(!r||!Number.isFinite(r.time)||r.time<=0||r.time>=36000)continue;
+          if(i===0&&v.version===2){if(!save.migrationNotice)save.migrationNotice='course0';continue;}
+          save.records[i]={time:r.time,place:clamp(Math.floor(r.place)||4,1,4),medal:medal(COURSES[i],r.time)};
+        }
+      }
+    }catch(_){return freshSave();}
+    return save;
+  }
   function record(save,sim){const id=sim.course.id;const previous=save.records[id];const best=!previous||sim.time<previous.time;if(best)save.records[id]={time:sim.time,place:sim.place,medal:medal(sim.course,sim.time)};save.unlocked=Math.max(save.unlocked,Math.min(29,id+1));return best;}
   return {BIOMES,COURSES,PHYSICS,RAMP_SHAPES,rampHeight,rampSlope,surface,clamp,rng,createRace,step,lane,medal,freshSave,parseSave,record};
 });
