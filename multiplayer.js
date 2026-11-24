@@ -69,6 +69,8 @@ function connect(retry=false){clean();M.active=true;M.round=0;if(!retry)attempt=
  ws.onopen=()=>{if(g!==generation)return;send({t:'ping',at:now()});send({t:'join',name:$('mp-name').value});};
  ws.onclose=()=>disconnected(g);ws.onerror=()=>{if(g===generation)ws?.close();};
  ws.onmessage=e=>{if(g!==generation)return;let d;try{d=JSON.parse(e.data);}catch{return;}if(d.v!==2)return;lastMessage=now();
+ if(d.t==='chat' && typeof d.name==='string' && typeof d.text==='string') {const log=$('chat-log');if(log){const stick=log.scrollHeight-log.scrollTop-log.clientHeight<28;const line=document.createElement('p'),nick=document.createElement('b');nick.textContent=d.name+': ';line.append(nick,document.createTextNode(d.text));log.append(line);while(log.children.length>64)log.firstElementChild.remove();if(stick)log.scrollTop=log.scrollHeight;}}
+ if(d.t==='chatError'&&typeof d.message==='string')$('chat-note').textContent=d.message;
  if(d.t==='welcome'){id=d.id;if(Number.isFinite(d.now))offset=d.now-now();}
  if(d.t==='pong'){const rtt=now()-d.at;if(rtt>=0&&rtt<best){best=rtt;offset=d.now-(d.at+now())/2;}}
  if(d.t==='error'){status(d.message);controls();}
@@ -86,5 +88,6 @@ M.remaining=()=>Math.max(0,(startAt-now())/1000);M.elapsed=()=>Math.max(0,(now()
 M.leave=()=>{send({t:'leave'});M.active=false;clean();$('mp-panel').classList.add('hidden');};M.hidden=()=>{if(M.running)send({t:'hidden'});};
 M.init=bridge=>{api=bridge;try{$('mp-name').value=localStorage.getItem('dust-turbo-nickname')||'Гонщик';}catch{}let renameTimer;
 $('mp-name').addEventListener('input',()=>{try{localStorage.setItem('dust-turbo-nickname',$('mp-name').value);}catch{}clearTimeout(renameTimer);renameTimer=setTimeout(()=>send({t:'rename',name:$('mp-name').value}),250);});
-$('friend').onclick=()=>{api.wake();connect();};$('mp-start').onclick=()=>{api.wake();send({t:'ready',ready:!M.players.find(p=>p.id===id)?.ready});};$('mp-exit').onclick=()=>{M.leave();api.home();};};
+const form=$('chat-form');if(form)form.onsubmit=e=>{e.preventDefault();const box=$('chat-input'),text=box.value.trim();if(!text)return;if(!M.connected||ws?.readyState!==1){$('chat-note').textContent='Нет связи. Дождись подключения.';return;}send({t:'chat',text});box.value='';$('chat-note').textContent='Сообщения видны всем в лобби.';};
+$('friend').onclick=()=>{if(form){$('chat-log').replaceChildren();$('chat-input').value='';$('chat-note').textContent='Сообщения видны всем в лобби.';}api.wake();connect();};$('mp-start').onclick=()=>{api.wake();send({t:'ready',ready:!M.players.find(p=>p.id===id)?.ready});};$('mp-exit').onclick=()=>{M.leave();api.home();};};
 })();
